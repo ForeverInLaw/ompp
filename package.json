@@ -7,7 +7,7 @@
     "url": "git+https://github.com/ForeverInLaw/ompp.git"
   },
   "bin": {
-    "ompp": "./ompp.js"
+    "ompp": "ompp.js"
   },
   "files": [
     "ompp.js",
