@@ -9,8 +9,8 @@ ompp gives each kind of work a name and a folder. Launch a session in a mode and
 ## Install
 
 ```sh
-git clone git@github.com:ForeverInLaw/oh-my-profile.git
-cd oh-my-profile
+git clone git@github.com:ForeverInLaw/ompp.git
+cd ompp
 npm install -g .
 ```
 
