@@ -2,12 +2,27 @@
   "name": "ompp",
   "version": "0.1.0",
   "description": "Mode presets for the omp coding agent: one folder per mode, zero config code.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ForeverInLaw/ompp.git"
+  },
   "bin": {
     "ompp": "./ompp.js"
   },
+  "files": [
+    "ompp.js",
+    "modes/"
+  ],
   "engines": {
     "node": ">=18"
   },
-  "license": "UNLICENSED",
-  "private": true
+  "keywords": [
+    "omp",
+    "oh-my-pi",
+    "coding-agent",
+    "presets",
+    "cli"
+  ],
+  "author": "ForeverInLaw",
+  "license": "MIT"
 }
