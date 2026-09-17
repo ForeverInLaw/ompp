@@ -1,0 +1,8 @@
+modelRoles:
+  default: crusoe/zai-org/GLM-5.3:max
+defaultThinkingLevel: high
+skills:
+  includeSkills:
+    - unslop
+    - tdd
+    - diagnosing-bugs

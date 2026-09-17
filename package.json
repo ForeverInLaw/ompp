@@ -1,0 +1,13 @@
+{
+  "name": "ompp",
+  "version": "0.1.0",
+  "description": "Mode presets for the omp coding agent: one folder per mode, zero config code.",
+  "bin": {
+    "ompp": "./ompp.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
