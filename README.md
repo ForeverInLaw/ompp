@@ -22,24 +22,30 @@ cd ompp
 npm install -g .
 ```
 
-## Usage
-
 ```sh
 ompp                    arrow-key picker, then launches omp
 ompp pentest            launch in a mode
 ompp writing -p "..."   mode plus any omp flags
+ompp create pentest     make a new mode with placeholder files,
+                         then open its folder in your file manager
 ompp list               print mode names
 ompp pentest --dry-run  show the omp command line instead of running it
 ```
 
 Before launch it prints one line to stderr, `[ompp] mode: pentest`, so you always know where you are.
 
-## What a mode is
+Modes are read from up to three places, and same-named modes from earlier
+places win:
 
-A folder under `modes/`. Every file is optional, whatever exists gets wired into the launch flags.
+1. `OMPP_MODES_DIR`, if you set it
+2. `modes/` shipped next to the script (the repo checkout or the npm package)
+3. `~/.omp/ompp/modes/`, the user-level home for your own modes
+
+`ompp create` always writes to `~/.omp/ompp/modes/`, so you never edit files
+inside an installed package. The first `ompp create` makes the folder for you.
 
 ```
-modes/pentest/
+~/.omp/ompp/modes/pentest/
   config.yml      settings overlay
   system.md       full system prompt replacement
   append.md       prompt addendum, used when system.md is absent
@@ -55,7 +61,9 @@ modes/pentest/
 | `append.md` | `--append-system-prompt` | Rides on top of your normal prompt. This is what most modes want. |
 | the folder itself | `--plugin-dir` | omp treats the mode folder as a plugin root, so `skills/` and `.mcp.json` inside it load too. |
 
-A new mode is `mkdir modes/<name>` plus files. No manifest, no code. The wrapper reads the folder, so it never needs to change when you add modes. `modes/general` is a working example to copy from.
+A new mode is `ompp create <name>` (or plain `mkdir` plus files). No manifest,
+no code. The wrapper reads the folder, so it never needs to change when you
+add modes. `modes/general` in the repo is a working example.
 
 ## Precedence
 
@@ -71,9 +79,7 @@ MCP servers can be added by a mode but never removed. omp has no launch-time MCP
 
 Mode-local `skills/` are additive as well. To have fewer skills, set `skills.includeSkills` in the mode's `config.yml`. The allowlist filters every discovered skill, global ones included.
 
-The picker needs a TTY. Piped or otherwise headless stdin gets a numbered prompt instead.
-
 ## Environment
 
-- `OMPP_MODES_DIR`, where modes live. Default is `modes/` next to the script.
+- `OMPP_MODES_DIR`, an extra modes directory that wins over the bundled one.
 - `OMPP_OMP_BIN`, which omp to launch. Default is omp from PATH.

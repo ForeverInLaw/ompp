@@ -20,7 +20,20 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
-const MODES_DIR = process.env.OMPP_MODES_DIR || path.join(__dirname, "modes");
+const os = require("os");
+
+// Modes come from up to three places, in priority order:
+//   1. OMPP_MODES_DIR (explicit override)
+//   2. modes/ next to this script (repo checkout or npm package)
+//   3. ~/.omp/ompp/modes (user-level default where `ompp create` writes)
+// Same-named modes from a higher-priority source win.
+const DEFAULT_MODES_DIR = path.join(os.homedir(), ".omp", "ompp", "modes");
+const BUNDLED_MODES_DIR = path.join(__dirname, "modes");
+const SOURCES = [];
+if (process.env.OMPP_MODES_DIR) SOURCES.push(process.env.OMPP_MODES_DIR);
+SOURCES.push(BUNDLED_MODES_DIR);
+SOURCES.push(DEFAULT_MODES_DIR);
+const RESERVED_NAMES = ["create", "list", "help", "version"];
 const CONFIG_NAMES = ["config.yml", "config.yaml"];
 const PLUGIN_ARTIFACTS = [
   "skills",
@@ -32,6 +45,10 @@ const PLUGIN_ARTIFACTS = [
   "tools",
 ];
 
+function modeDirOf(name, source) {
+  return path.join(source, name);
+}
+
 function firstExisting(dir, names) {
   for (const n of names) {
     const p = path.join(dir, n);
@@ -40,27 +57,43 @@ function firstExisting(dir, names) {
   return null;
 }
 
-function discoverModes() {
-  const modes = [];
-  const skipped = [];
-  if (!fs.existsSync(MODES_DIR)) return { modes, skipped };
+function scanSource(source, modes, skipped, seen) {
+  if (!fs.existsSync(source)) return;
   const entries = fs
-    .readdirSync(MODES_DIR, { withFileTypes: true })
+    .readdirSync(source, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort();
   for (const name of entries) {
     if (name.startsWith(".") || name.startsWith("_")) continue;
-    const dir = path.join(MODES_DIR, name);
+    const dir = modeDirOf(name, source);
     const hasSomething = firstExisting(dir, [
       ...CONFIG_NAMES,
       "system.md",
       "append.md",
       ...PLUGIN_ARTIFACTS,
     ]);
-    if (hasSomething) modes.push(name);
-    else skipped.push(name);
+    if (!hasSomething) {
+      skipped.push(name);
+      continue;
+    }
+    if (seen.has(name)) {
+      // A same-named mode from a higher-priority source already won.
+      console.error(
+        `[ompp] mode "${name}" exists in several mode folders; using the one in ${modeDirOf(name, SOURCES[0])}`,
+      );
+      continue;
+    }
+    seen.add(name);
+    modes.push({ name, source });
   }
+}
+
+function discoverModes() {
+  const modes = [];
+  const skipped = [];
+  const seen = new Set();
+  for (const source of SOURCES) scanSource(source, modes, skipped, seen);
   return { modes, skipped };
 }
 
@@ -130,9 +163,13 @@ Usage:
   ompp                    pick a mode interactively, then launch omp
   ompp <mode> [args...]   launch omp in a mode; everything after <mode>
                           is passed to omp unchanged and wins over the mode
+  ompp create <name>      create a new mode with placeholder files
+                          and open its folder
   ompp list               list available modes
 
-A mode is a folder under modes/. All files are optional:
+Modes live in ~/.omp/ompp/modes/ (created for you by "ompp create") and,
+if OMPP_MODES_DIR is set, in that folder too. Same-named modes from
+OMPP_MODES_DIR win. All files are optional:
   config.yml              settings overlay: model, thinking level,
                          skills.includeSkills allowlist, approval mode, ...
   system.md               replaces the system prompt entirely
@@ -147,8 +184,98 @@ Flags:
   -v, --version           version
 
 Environment:
-  OMPP_MODES_DIR          modes directory (default: modes/ next to this script)
+  OMPP_MODES_DIR          extra modes directory (repo checkout or custom)
   OMPP_OMP_BIN            omp executable to launch (default: omp from PATH)`);
+}
+
+const CONFIG_TEMPLATE = `# Settings overlay for this mode. Every line is optional:
+# uncomment what you need. See "omp config list" for all keys.
+
+# modelRoles:
+#   default: anthropic/claude-sonnet-4-5
+# defaultThinkingLevel: high
+# tools:
+#   approvalMode: write
+
+# Allowlist of skills this mode can see. Globs are allowed.
+# Empty (or absent) means every discovered skill loads.
+# skills:
+#   includeSkills:
+#     - tdd
+#     - diagnosing-bugs
+`;
+
+const APPEND_TEMPLATE = `# Extra instructions added on top of your normal system prompt.
+# This file is plain text: delete these lines and write your own.
+
+Answer directly and briefly. No preamble, no restating the question.
+`;
+
+const SYSTEM_TEMPLATE = `# Rename this file to system.md to REPLACE the whole system prompt
+# instead of appending. Replacing drops omp's default instructions and
+# your global ~/.omp/agent/SYSTEM.md, including tool policy: write
+# what you need into the file itself.
+`;
+
+const MCP_TEMPLATE = `{
+  "mcpServers": {
+    "example": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+`;
+
+function revealInFileManager(dir) {
+  const cmd =
+    process.platform === "win32"
+      ? { bin: "explorer", args: [dir] }
+      : process.platform === "darwin"
+        ? { bin: "open", args: [dir] }
+        : { bin: "xdg-open", args: [dir] };
+  const child = spawn(cmd.bin, cmd.args, { stdio: "ignore", detached: true });
+  child.on("error", (err) => {
+    console.error(`[ompp] could not open a file manager: ${err.message}`);
+  });
+  child.unref();
+}
+
+function createMode(name) {
+  if (!name) {
+    console.error(`[ompp] usage: ompp create <name>`);
+    return 1;
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+    console.error(
+      `[ompp] "${name}" is not a valid mode name. Use lowercase letters, digits, and dashes.`,
+    );
+    return 1;
+  }
+  if (RESERVED_NAMES.includes(name)) {
+    console.error(`[ompp] "${name}" is reserved for ompp commands.`);
+    return 1;
+  }
+
+  // Always create in the user-level default, regardless of OMPP_MODES_DIR.
+  const dir = modeDirOf(name, DEFAULT_MODES_DIR);
+  if (fs.existsSync(dir)) {
+    console.error(`[ompp] mode "${name}" already exists, opening its folder.`);
+    revealInFileManager(dir);
+    return 0;
+  }
+
+  fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "config.yml"), CONFIG_TEMPLATE);
+  fs.writeFileSync(path.join(dir, "append.md"), APPEND_TEMPLATE);
+  fs.writeFileSync(path.join(dir, "system.md.example"), SYSTEM_TEMPLATE);
+  fs.writeFileSync(path.join(dir, ".mcp.json.example"), MCP_TEMPLATE);
+  fs.writeFileSync(path.join(dir, "skills", ".gitkeep"), "");
+
+  console.error(`[ompp] created mode "${name}" in ${dir}`);
+  revealInFileManager(dir);
+  console.error(`[ompp] edit the placeholders, then launch it: ompp ${name}`);
+  return 0;
 }
 
 function pickInteractive(modes) {
@@ -229,42 +356,27 @@ function pickInteractive(modes) {
 
     stdin.setRawMode(true);
     stdin.resume();
-    stdin.on("data", onData);
     render(true);
-  });
-}
-
-function pickByNumber(modes) {
-  return new Promise((resolve, reject) => {
-    const readline = require("readline");
-    const rl = readline.createInterface({ input: process.stdin });
-    process.stdout.write("Select a mode:\n");
-    modes.forEach((m, i) => process.stdout.write(`  ${i + 1}. ${m}\n`));
-    process.stdout.write(`Choice [1-${modes.length}]: `);
-    rl.once("line", (line) => {
-      rl.close();
-      const n = parseInt(line.trim(), 10);
-      if (n >= 1 && n <= modes.length) resolve(modes[n - 1]);
-      else reject(new Error(`"${line.trim()}" is not a valid choice`));
-    });
-    rl.once("close", () => {
-      reject(new Error("no mode selected"));
-    });
   });
 }
 
 async function main() {
   const argv = process.argv.slice(2);
 
+  if (argv[0] === "create") {
+    return createMode(argv[1]);
+  }
+
   if (argv[0] === "list") {
     const { modes, skipped } = discoverModes();
     if (!modes.length) {
       console.error(
-        `[ompp] no modes found in ${MODES_DIR}. Create modes/<name>/ with at least one mode file.`,
+        `[ompp] no modes found. Run "ompp create <name>" to make one.`,
       );
+      for (const s of SOURCES) console.error(`[ompp] looked in: ${s}`);
       return 1;
     }
-    for (const m of modes) console.log(m);
+    for (const m of modes) console.log(m.name);
     if (skipped.length) {
       console.error(
         `[ompp] skipped folders without recognized files: ${skipped.join(", ")}`,
@@ -293,46 +405,53 @@ async function main() {
   }
   if (!modes.length) {
     console.error(
-      `[ompp] no modes found in ${MODES_DIR}. Create modes/<name>/ with at least one mode file.`,
+      `[ompp] no modes found. Run "ompp create <name>" to make one.`,
     );
+    for (const s of SOURCES) console.error(`[ompp] looked in: ${s}`);
     return 1;
   }
 
+  const modeNames = modes.map((m) => m.name);
   let mode = null;
   let userArgs = rest;
   if (rest.length && !rest[0].startsWith("-")) {
     const candidate = rest[0];
-    if (modes.includes(candidate)) {
-      mode = candidate;
+    const found = modes.find((m) => m.name === candidate);
+    if (found) {
+      mode = found;
       userArgs = rest.slice(1);
     } else {
       console.error(`[ompp] unknown mode "${candidate}"`);
-      console.error(`[ompp] available: ${modes.join(", ")}`);
+      console.error(`[ompp] available: ${modeNames.join(", ")}`);
       return 1;
     }
   } else {
     try {
       mode = process.stdin.isTTY
-        ? await pickInteractive(modes)
-        : await pickByNumber(modes);
+        ? await pickInteractive(modeNames).then((n) =>
+            modes.find((m) => m.name === n),
+          )
+        : await pickByNumber(modeNames).then((n) =>
+            modes.find((m) => m.name === n),
+          );
     } catch (err) {
       console.error(`[ompp] ${err.message}`);
       return 1;
     }
   }
 
-  const modeDir = path.join(MODES_DIR, mode);
+  const modeDir = modeDirOf(mode.name, mode.source);
   const args = buildArgv(modeDir, userArgs);
   const { bin, shell } = resolveBin();
 
   if (dryRun) {
-    console.error(`[ompp] mode: ${mode}`);
+    console.error(`[ompp] mode: ${mode.name}`);
     console.error(`[ompp] omp: ${bin}${shell ? " (shell)" : ""}`);
     console.error(`[ompp] argv: ${JSON.stringify(args)}`);
     return 0;
   }
 
-  console.error(`[ompp] mode: ${mode}`);
+  console.error(`[ompp] mode: ${mode.name}`);
   const child = shell
     ? spawn([winQuote(bin), ...args.map(winQuote)].join(" "), {
         stdio: "inherit",
