@@ -19,8 +19,118 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-
 const os = require("os");
+const https = require("https");
+// --- update check -----------------------------------------------------------
+// Best-practice pattern (update-notifier): a 24h cache file, a non-blocking
+// registry query that never delays startup, and a pnpm-style upgrade banner.
+const UPDATE_CACHE = path.join(os.homedir(), ".omp", "ompp", "update-check.json");
+const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function readCachedLatest() {
+  try {
+    const data = JSON.parse(fs.readFileSync(UPDATE_CACHE, "utf8"));
+    if (typeof data.latest === "string") return data.latest;
+  } catch {
+    /* no cache yet or corrupt: fine */
+  }
+  return null;
+}
+
+function fetchLatestVersion() {
+  return new Promise((resolve) => {
+    const req = https.get(
+      "https://registry.npmjs.org/@nevermorelove%2fompp",
+      { timeout: 5000 },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return resolve(null);
+        }
+        let body = "";
+        res.on("data", (c) => (body += c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body)["dist-tags"]?.latest ?? null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+
+function writeUpdateCache(latest) {
+  try {
+    fs.mkdirSync(path.dirname(UPDATE_CACHE), { recursive: true });
+    fs.writeFileSync(
+      UPDATE_CACHE,
+      JSON.stringify({ latest, checkedAt: Date.now() }),
+    );
+  } catch {
+    /* cache write is best-effort */
+  }
+}
+function isNewerVersion(current, latest) {
+  const parse = (v) =>
+    v.split(/[.-]/).slice(0, 3).map((n) => parseInt(n, 10) || 0);
+  const [cmaj, cmin, cpat] = parse(current);
+  const [lmaj, lmin, lpat] = parse(latest);
+  if (lmaj !== cmaj) return lmaj > cmaj;
+  if (lmin !== cmin) return lmin > cmin;
+  return lpat > cpat;
+}
+
+function printUpdateBanner(current, latest) {
+  const line = `Update available! ${current} → ${latest}`;
+  const hint = `Run "npm i -g @nevermorelove/ompp" to update`;
+  const width = Math.max(line.length, hint.length) + 4;
+  const pad = (s) => "  " + s + " ".repeat(width - 2 - s.length) + "  ";
+  console.error("┌" + "─".repeat(width) + "┐");
+  console.error("│" + " ".repeat(width) + "│");
+  console.error("│" + pad(line) + "│");
+  console.error("│" + pad(hint) + "│");
+  console.error("│" + " ".repeat(width) + "│");
+  console.error("└" + "─".repeat(width) + "┘");
+}
+
+async function checkForUpdate() {
+  if (process.env.OMPP_NO_UPDATE_CHECK === "1") return;
+  if (process.env.CI) return;
+  // Skip dev checkouts: a repo clone updates via git, not npm.
+  if (fs.existsSync(path.join(__dirname, ".git"))) return;
+
+  const current = require("./package.json").version;
+  let cached = null;
+  try {
+    cached = JSON.parse(fs.readFileSync(UPDATE_CACHE, "utf8"));
+  } catch {
+    /* no cache yet or corrupt: fine */
+  }
+  const fresh =
+    cached && Date.now() - (cached.checkedAt || 0) < UPDATE_INTERVAL_MS;
+
+  if (!fresh) {
+    // Refetch; the 5s timeout bounds the wait, and a failure keeps the
+    // process moving without a banner.
+    const latest = await fetchLatestVersion();
+    if (latest) {
+      writeUpdateCache(latest);
+      if (isNewerVersion(current, latest)) printUpdateBanner(current, latest);
+    }
+    return;
+  }
+  if (cached.latest && isNewerVersion(current, cached.latest)) {
+    printUpdateBanner(current, cached.latest);
+  }
+}
+
 
 // Modes come from two places, in priority order:
 //   1. OMPP_MODES_DIR (explicit override; repo checkout, custom folder)
@@ -372,6 +482,8 @@ function launchMode(mode, userArgs, dryRun) {
 }
 
 async function main() {
+  await checkForUpdate();
+
   const argv = process.argv.slice(2);
 
   if (argv[0] === "create") {
