@@ -29,7 +29,7 @@ ompp list               # list modes
 ompp pentest --dry-run  # print the command without running it
 ```
 
-The picker lets you rename or delete a mode too. It drops you back in the list after, so a wrong click costs nothing.
+The picker lets you rename, delete, or open a mode's folder too. It drops you back in the list after, so a wrong click costs nothing.
 
 Before launch it prints `[ompp] mode: pentest` to stderr. You always know where you are.
 
