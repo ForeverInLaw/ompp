@@ -496,10 +496,7 @@ async function main() {
     try {
       const picked = await pickMode([]);
       if (picked && typeof picked === "object" && picked.create) {
-        const created = createMode(picked.create);
-        if (created !== 0) return created;
-        const mode2 = { name: picked.create, source: DEFAULT_MODES_DIR };
-        return launchMode(mode2, userArgs, dryRun);
+        return createMode(picked.create);
       }
       return 1;
     } catch (err) {
@@ -530,10 +527,10 @@ async function main() {
         ? await pickMode(modeNames)
         : await pickModePiped(modeNames);
       if (picked && typeof picked === "object" && picked.create) {
-        const created = createMode(picked.create);
-        if (created !== 0) return created;
-        // Launch the freshly created mode right away.
-        mode = { name: picked.create, source: DEFAULT_MODES_DIR };
+        // Scaffold and stop: the mode is all placeholders, launching it
+        // now would run an unconfigured mode. The user fills it in and
+        // launches when ready.
+        return createMode(picked.create);
       } else {
         mode = modes.find((m) => m.name === picked);
       }
