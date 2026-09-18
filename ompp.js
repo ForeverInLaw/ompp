@@ -226,7 +226,6 @@ function usage() {
 
 Usage:
   ompp                    pick a mode interactively, then launch omp
-                          (r: rename, d: delete on the highlighted mode)
   ompp <mode> [args...]   launch omp in a mode; everything after <mode>
                           is passed to omp unchanged and wins over the mode
   ompp create <name>      create a new mode with placeholder files
