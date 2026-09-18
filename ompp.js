@@ -22,16 +22,15 @@ const { spawn } = require("child_process");
 
 const os = require("os");
 
-// Modes come from up to three places, in priority order:
-//   1. OMPP_MODES_DIR (explicit override)
-//   2. modes/ next to this script (repo checkout or npm package)
-//   3. ~/.omp/ompp/modes (user-level default where `ompp create` writes)
-// Same-named modes from a higher-priority source win.
+// Modes come from two places, in priority order:
+//   1. OMPP_MODES_DIR (explicit override; repo checkout, custom folder)
+//   2. ~/.omp/ompp/modes (the user-level home; `ompp create` writes here)
+// Same-named modes from OMPP_MODES_DIR win. The folder next to the script
+// is never scanned: with a global install it sits inside node_modules, and
+// user modes must not live there.
 const DEFAULT_MODES_DIR = path.join(os.homedir(), ".omp", "ompp", "modes");
-const BUNDLED_MODES_DIR = path.join(__dirname, "modes");
 const SOURCES = [];
 if (process.env.OMPP_MODES_DIR) SOURCES.push(process.env.OMPP_MODES_DIR);
-SOURCES.push(BUNDLED_MODES_DIR);
 SOURCES.push(DEFAULT_MODES_DIR);
 const RESERVED_NAMES = ["create", "list", "help", "version"];
 const CONFIG_NAMES = ["config.yml", "config.yaml"];

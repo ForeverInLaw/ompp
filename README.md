@@ -34,12 +34,10 @@ ompp pentest --dry-run  show the omp command line instead of running it
 
 Before launch it prints one line to stderr, `[ompp] mode: pentest`, so you always know where you are.
 
-Modes are read from up to three places, and same-named modes from earlier
-places win:
+Modes are read from two places, and same-named modes from the first win:
 
-1. `OMPP_MODES_DIR`, if you set it
-2. `modes/` shipped next to the script (the repo checkout or the npm package)
-3. `~/.omp/ompp/modes/`, the user-level home for your own modes
+1. `OMPP_MODES_DIR`, if you set it (a repo checkout, any custom folder)
+2. `~/.omp/ompp/modes/`, the user-level home for your own modes
 
 `ompp create` always writes to `~/.omp/ompp/modes/`, so you never edit files
 inside an installed package. The first `ompp create` makes the folder for you.
