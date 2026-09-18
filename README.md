@@ -1,10 +1,8 @@
-# ompp
+# ompp — profiles for [omp](https://github.com/can1357/oh-my-pi)
 
-Mode presets for the [omp](https://github.com/can1357/oh-my-pi) coding agent.
+omp loads everything every time. Every skill, every MCP server, every system prompt. Every session. Gets noisy fast.
 
-omp loads every skill, prompt file, and MCP server it can find on your machine, every session. With 80 skills installed, the system prompt carries 80 descriptions even when three would do, and switching personas means renaming `SYSTEM.md` by hand.
-
-ompp gives each kind of work a name and a folder. Launch a session in a mode and it starts with only what that work needs.
+ompp fixes that. Give each kind of work its own profile. `ompp pentest` starts with only what pentesting needs. Nothing extra.
 
 ## Install
 
@@ -12,76 +10,78 @@ ompp gives each kind of work a name and a folder. Launch a session in a mode and
 npm install -g @nevermorelove/ompp
 ```
 
-Node 18 or newer, that is the whole requirement. bun works too. The binary is
-named `ompp` even though the package is scoped. You can also install from
-source:
+Needs Node 18 or newer. Bun works too.
+
+From source:
 
 ```sh
-git clone git@github.com:ForeverInLaw/ompp.git
-cd ompp
-npm install -g .
+git clone git@github.com:ForeverInLaw/ompp.git && cd ompp && npm install -g .
 ```
+
+## Use
 
 ```sh
-ompp                    arrow-key picker, then launches omp
-ompp pentest            launch in a mode
-ompp writing -p "..."   mode plus any omp flags
-ompp create pentest     make a new mode with placeholder files,
-                         then open its folder in your file manager
-ompp list               print mode names
-ompp pentest --dry-run  show the omp command line instead of running it
+ompp                    # pick a mode, then launch
+ompp pentest            # launch straight into a mode
+ompp writing -p "..."   # mode plus any omp flags
+ompp create my-mode     # new mode
+ompp list               # list modes
+ompp pentest --dry-run  # print the command without running it
 ```
 
-In the picker, select a mode then choose Launch, Rename, or Delete. Rename
-and Delete reopen the picker after, so a mispress costs nothing: cancel the
-rename or keep the mode, and you are back in the list.
+The picker lets you rename or delete a mode too. It drops you back in the list after, so a wrong click costs nothing.
 
-Before launch it prints one line to stderr, `[ompp] mode: pentest`, so you always know where you are.
+Before launch it prints `[ompp] mode: pentest` to stderr. You always know where you are.
 
-Modes are read from two places, and same-named modes from the first win:
+## Make a mode
 
-1. `OMPP_MODES_DIR`, if you set it (a repo checkout, any custom folder)
-2. `~/.omp/ompp/modes/`, the user-level home for your own modes
-
-`ompp create` always writes to `~/.omp/ompp/modes/`, so you never edit files
-inside an installed package. The first `ompp create` makes the folder for you.
-
-```
-~/.omp/ompp/modes/pentest/
-  config.yml      settings overlay
-  system.md       full system prompt replacement
-  append.md       prompt addendum, used when system.md is absent
-  skills/         skills only this mode sees
-  .mcp.json       MCP servers only this mode gets
-  prompts/ commands/ rules/ hooks/ tools/   also load from the mode folder
+```sh
+ompp create pentest
 ```
 
-| File | omp flag | What goes in it |
-| --- | --- | --- |
-| `config.yml` | `--config` | Any OMP setting. `modelRoles.default`, `defaultThinkingLevel`, `tools.approvalMode`, the `skills.includeSkills` glob allowlist and friends. |
-| `system.md` | `--system-prompt` | Replaces the prompt whole. The default omp instructions, your global `SYSTEM.md`, and the built-in tool policy are gone. Write what you need. |
-| `append.md` | `--append-system-prompt` | Rides on top of your normal prompt. This is what most modes want. |
-| the folder itself | `--plugin-dir` | omp treats the mode folder as a plugin root, so `skills/` and `.mcp.json` inside it load too. |
+```
+config.yml   omp settings (--config)
+append.md    extra prompt text (--append-system-prompt) — you probably want this one
+system.md    replace the whole prompt (--system-prompt)
+skills/      skills only this mode sees
+.mcp.json    MCP servers only this mode gets
+prompts/ commands/ rules/ hooks/ tools/   also loaded from the mode folder
+```
 
-A new mode is `ompp create <name>` (or plain `mkdir` plus files). No manifest,
-no code. The wrapper reads the folder, so it never needs to change when you
-add modes.
+No manifest, no config to register. Just `mkdir` and files if you prefer.
 
-## Precedence
+### System prompts
 
-Your flags beat the mode.
+Each mode can change what the agent reads at startup. Three options:
 
-`ompp pentest --model anthropic/claude-sonnet-4-5` runs Sonnet even when the mode's `config.yml` says otherwise. An explicit `--system-prompt` on the command line disables the mode's prompt file for that run. Later `--config` overlays win too, so single keys can be overridden ad hoc.
+| File | What it does | When to use it |
+|---|---|---|
+| `append.md` | added on top of omp defaults + `~/.omp/agent/SYSTEM.md` | almost always — tweak without losing the base prompt |
+| `system.md` | replaces the entire prompt, base prompt and global `SYSTEM.md` are ignored | you want full control |
+| no file | omp runs as usual | mode only changes config, skills, or MCP |
 
-`append.md` stacks on omp's default prompt plus your global `~/.omp/agent/SYSTEM.md` if you have one. A mode with `system.md` replaces all of it.
+If both exist, `system.md` wins. Both are ignored if you pass `--system-prompt` or `--append-system-prompt` on the command line — your flags always win.
 
-## Limits worth knowing
+ompp looks for modes in two places. First match wins.
 
-MCP servers can be added by a mode but never removed. omp has no launch-time MCP filter, so a mode that wants fewer servers than your global `mcp.json` provides has to live with them. This is the one gap that would need an omp extension to close.
+1. `$OMPP_MODES_DIR` if you set it
+2. `~/.omp/ompp/modes/` — your modes
 
-Mode-local `skills/` are additive as well. To have fewer skills, set `skills.includeSkills` in the mode's `config.yml`. The allowlist filters every discovered skill, global ones included.
+## How overrides work
 
-## Environment
+Your flags always win. If the mode sets a model in `config.yml` and you pass `--model anthropic/claude-sonnet-4-5`, you get Sonnet for that run. Same with `--system-prompt`, it skips the mode file entirely.
 
-- `OMPP_MODES_DIR`, an extra modes directory that wins over the bundled one.
-- `OMPP_OMP_BIN`, which omp to launch. Default is omp from PATH.
+`append.md` stacks on top of omp defaults and your global `~/.omp/agent/SYSTEM.md`. `system.md` replaces all of it. Most of the time you want `append.md`.
+
+## Things worth knowing
+
+MCP servers are additive only. A mode can add servers but cannot remove global ones. omp does not have a filter for that yet.
+
+Same story for skills, but there is a workaround. Set `skills.includeSkills` in the mode `config.yml` to allowlist only what you need.
+
+## Env
+
+| Variable | What it does | Default |
+|---|---|---|
+| `OMPP_MODES_DIR` | extra modes folder, checked first | — |
+| `OMPP_OMP_BIN` | which omp to run | `omp` from PATH |
