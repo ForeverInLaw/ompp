@@ -384,76 +384,19 @@ async function pickMode(modes) {
   const { select, text, confirm, isCancel, cancel } = require("@clack/prompts");
   for (;;) {
     const options = [
-      ...modes.map((m) => ({
-        value: m,
-        label: m.name,
-        hint: "r: rename, d: delete",
-      })),
+      ...modes.map((m) => ({ value: m, label: m.name })),
       { value: CREATE_OPTION, label: "Create a new mode +" },
     ];
-    let action = null; // "rename" | "delete" | null
-    // Registered before the prompt so it sees the keypress first and can
-    // rewrite r/d into "return" for the prompt's own keypress listener.
-    const onKeypress = (ch, key) => {
-      if (!key || !key.name) return;
-      if (key.name === "r" && !key.ctrl && !key.meta) {
-        action = "rename";
-        key.name = "return";
-      } else if (key.name === "d" && !key.ctrl && !key.meta) {
-        action = "delete";
-        key.name = "return";
-      }
-    };
-    process.stdin.on("keypress", onKeypress);
     const chosen = await select({
       message: "Pick a mode",
       options,
     });
-    process.stdin.removeListener("keypress", onKeypress);
 
     if (isCancel(chosen)) {
       cancel("Cancelled");
       process.exit(130);
     }
 
-    // r/d on the highlighted row: run the action, then reopen the picker.
-    if (action && chosen !== CREATE_OPTION) {
-      if (action === "rename") {
-        const newName = await text({
-          message: `Rename "${chosen.name}" to`,
-          validate: (v) => {
-            if (!v || !isValidModeName(v)) {
-              return "Lowercase letters, digits, and dashes only";
-            }
-            if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
-            if (modes.some((m) => m.name === v)) return `"${v}" already exists`;
-            return undefined;
-          },
-        });
-        if (!isCancel(newName) && renameMode(chosen, newName)) {
-          chosen.name = newName;
-        } else {
-          cancel("Rename cancelled");
-        }
-      } else {
-        const sure = await confirm({
-          message: `Delete "${chosen.name}"? This removes its folder.`,
-          active: "Delete",
-          inactive: "Keep",
-        });
-        if (!isCancel(sure) && sure) {
-          deleteMode(chosen);
-          // Splice in place: main() keeps a reference to this array.
-          modes.splice(
-            modes.findIndex((m) => m.name === chosen.name),
-            1,
-          );
-        } else {
-          cancel("Delete cancelled");
-        }
-      }
-      continue; // reopen the picker with the updated list
-    }
     if (chosen === CREATE_OPTION) {
       const name = await text({
         message: "New mode name",
@@ -471,7 +414,58 @@ async function pickMode(modes) {
       }
       return { create: name };
     }
-    return chosen;
+
+    // Second step: what to do with the picked mode. This replaces the
+    // previous r/d hotkey hack (process.stdin keypress rewrite) which left
+    // Windows terminals in raw mode and hung randomly.
+    const action = await select({
+      message: `Mode "${chosen.name}" — what next?`,
+      options: [
+        { value: "launch", label: "Launch" },
+        { value: "rename", label: "Rename" },
+        { value: "delete", label: "Delete" },
+        { value: "back", label: "Back" },
+      ],
+    });
+
+    if (isCancel(action) || action === "back") continue;
+    if (action === "launch") return chosen;
+
+    if (action === "rename") {
+      const newName = await text({
+        message: `Rename "${chosen.name}" to`,
+        validate: (v) => {
+          if (!v || !isValidModeName(v)) {
+            return "Lowercase letters, digits, and dashes only";
+          }
+          if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
+          if (modes.some((m) => m.name === v)) return `"${v}" already exists`;
+          return undefined;
+        },
+      });
+      if (!isCancel(newName) && newName !== chosen.name) {
+        if (renameMode(chosen, newName)) chosen.name = newName;
+      } else {
+        cancel("Rename cancelled");
+      }
+      continue;
+    }
+
+    if (action === "delete") {
+      const sure = await confirm({
+        message: `Delete "${chosen.name}"? This removes its folder.`,
+        active: "Delete",
+        inactive: "Keep",
+      });
+      if (!isCancel(sure) && sure) {
+        deleteMode(chosen);
+        const idx = modes.findIndex((m) => m.name === chosen.name);
+        if (idx !== -1) modes.splice(idx, 1);
+      } else {
+        cancel("Delete cancelled");
+      }
+      continue;
+    }
   }
 }
 
