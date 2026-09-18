@@ -64,16 +64,14 @@ function isNewerVersion(current, latest) {
 }
 
 function printUpdateBanner(current, latest) {
-  const line = `Update available! ${current} → ${latest}`;
+  const line = `Update available! ${current} -> ${latest}`;
   const hint = `Run "npm i -g @nevermorelove/ompp" to update`;
-  const width = Math.max(line.length, hint.length) + 4;
-  const pad = (s) => "  " + s + " ".repeat(width - 2 - s.length) + "  ";
-  console.error("┌" + "─".repeat(width) + "┐");
-  console.error("│" + " ".repeat(width) + "│");
+  const inner = Math.max(line.length, hint.length) + 2;
+  const pad = (s) => " " + s + " ".repeat(inner - 1 - s.length);
+  console.error("┌" + "─".repeat(inner) + "┐");
   console.error("│" + pad(line) + "│");
   console.error("│" + pad(hint) + "│");
-  console.error("│" + " ".repeat(width) + "│");
-  console.error("└" + "─".repeat(width) + "┘");
+  console.error("└" + "─".repeat(inner) + "┘");
 }
 
 async function checkForUpdate() {
