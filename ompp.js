@@ -326,7 +326,7 @@ async function main() {
     const { modes, skipped } = discoverModes();
     if (!modes.length) {
       console.error(
-        `[ompp] no modes found. Run "ompp create <name>" to make one.`,
+        `You have no modes yet. Create one with "ompp create <name>".`,
       );
       for (const s of SOURCES) console.error(`[ompp] looked in: ${s}`);
       return 1;
@@ -360,7 +360,7 @@ async function main() {
   }
   if (!modes.length) {
     console.error(
-      `[ompp] no modes found. Run "ompp create <name>" to make one.`,
+      `You have no modes yet. Create one with "ompp create <name>".`,
     );
     for (const s of SOURCES) console.error(`[ompp] looked in: ${s}`);
     return 1;

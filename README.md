@@ -63,7 +63,7 @@ inside an installed package. The first `ompp create` makes the folder for you.
 
 A new mode is `ompp create <name>` (or plain `mkdir` plus files). No manifest,
 no code. The wrapper reads the folder, so it never needs to change when you
-add modes. `modes/general` in the repo is a working example.
+add modes.
 
 ## Precedence
 
