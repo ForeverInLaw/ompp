@@ -278,87 +278,42 @@ function createMode(name) {
   return 0;
 }
 
-function pickInteractive(modes) {
+async function pickMode(modeNames) {
+  const { select, isCancel, cancel } = require("@clack/prompts");
+  const chosen = await select({
+    message: "Pick a mode",
+    options: modeNames.map((name) => ({ value: name, label: name })),
+  });
+  if (isCancel(chosen)) {
+    cancel("Cancelled");
+    process.exit(130);
+  }
+  return chosen;
+}
+
+// Non-TTY stdin: clack needs an interactive terminal, so numbered input.
+function pickModePiped(modeNames) {
   return new Promise((resolve, reject) => {
-    const stdin = process.stdin;
-    let idx = 0;
-    let settled = false;
-
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      stdin.removeListener("data", onData);
-      stdin.setRawMode(false);
-      process.stdout.write("\u001b[?25h"); // show cursor
-      if (value === null) reject(new Error("mode selection cancelled"));
-      else resolve(value);
-    };
-
-    const render = (first) => {
-      if (!first) process.stdout.write(`\u001b[${modes.length}A`);
-      const body = modes
-        .map((m, i) => (i === idx ? "> " + m : "  " + m))
-        .map((l) => "\u001b[2K" + l)
-        .join("\n");
-      process.stdout.write("\u001b[?25l" + body + "\n");
-    };
-
-    function onData(buf) {
-      // A single read can carry several keys (arrow + Enter glued together,
-      // a paste). Walk key by key instead of matching the whole chunk.
-      const s = buf.toString();
-      let i = 0;
-      while (i < s.length) {
-        const ch = s[i];
-        if (ch === "\u001b") {
-          const seq = s.slice(i);
-          if (seq.startsWith("\u001b[A") || seq.startsWith("\u001b[B") ||
-              seq.startsWith("\u001b[C") || seq.startsWith("\u001b[D")) {
-            if (seq.startsWith("\u001b[A")) {
-              idx = (idx - 1 + modes.length) % modes.length;
-              render(false);
-            } else if (seq.startsWith("\u001b[B")) {
-              idx = (idx + 1) % modes.length;
-              render(false);
-            } // C/D: left/right, ignore
-            i += 3;
-            continue;
-          }
-          if (seq.length === 1) {
-            // Bare escape with nothing after it in this chunk: cancel.
-            finish(null);
-            process.exit(0);
-          }
-          i++; // unknown or split sequence, skip the escape byte
-          continue;
-        }
-        if (ch === "\r" || ch === "\n") return finish(modes[idx]);
-        if (ch === "\u0003") {
-          // Ctrl+C: restore the terminal and bail like a shell would.
-          finish(null);
-          process.exit(130);
-        }
-        if (ch === "q") {
-          finish(null);
-          process.exit(0);
-        }
-        if (ch === "j") {
-          idx = (idx + 1) % modes.length;
-          render(false);
-        }
-        if (ch === "k") {
-          idx = (idx - 1 + modes.length) % modes.length;
-          render(false);
-        }
-        i++;
-      }
-    }
-
-    stdin.setRawMode(true);
-    stdin.resume();
-    render(true);
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin });
+    process.stdout.write("Select a mode:\n");
+    modeNames.forEach((m, i) => process.stdout.write(`  ${i + 1}. ${m}\n`));
+    process.stdout.write(`Choice [1-${modeNames.length}]: `);
+    let done = false;
+    rl.once("line", (line) => {
+      done = true;
+      rl.close();
+      const n = parseInt(line.trim(), 10);
+      if (n >= 1 && n <= modeNames.length) resolve(modeNames[n - 1]);
+      else reject(new Error(`"${line.trim()}" is not a valid choice`));
+    });
+    rl.once("close", () => {
+      if (!done) reject(new Error("no mode selected"));
+    });
   });
 }
+
+
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -427,13 +382,10 @@ async function main() {
     }
   } else {
     try {
-      mode = process.stdin.isTTY
-        ? await pickInteractive(modeNames).then((n) =>
-            modes.find((m) => m.name === n),
-          )
-        : await pickByNumber(modeNames).then((n) =>
-            modes.find((m) => m.name === n),
-          );
+      const name = process.stdin.isTTY
+        ? await pickMode(modeNames)
+        : await pickModePiped(modeNames);
+      mode = modes.find((m) => m.name === name);
     } catch (err) {
       console.error(`[ompp] ${err.message}`);
       return 1;
