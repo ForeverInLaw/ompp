@@ -1,0 +1,27 @@
+name: Publish
+
+# Trusted publishing (OIDC): npm exchanges a short-lived token for the
+# workflow's GitHub identity — no npm token stored, no OTP. The
+# registered publisher on npmjs.com must match this filename exactly.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write # OIDC token for the npm exchange
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false # never cache in release builds
+      - run: npm ci
+      - run: npm run lint
+      - run: npm publish
