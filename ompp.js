@@ -23,9 +23,13 @@
 const { spawn } = require("child_process");
 
 const { Registry } = require("./lib/registry");
+
 const { LaunchPlan } = require("./lib/launchPlan");
+
 const { ModeStore } = require("./lib/store");
+
 const { Picker } = require("./lib/picker");
+
 const { checkForUpdate } = require("./lib/updateChecker");
 
 function usage() {
@@ -63,20 +67,25 @@ Environment:
 // Spawn omp in the given mode.
 function launchMode(mode, userArgs, dryRun) {
   const plan = new LaunchPlan().forMode(mode, userArgs);
+
   if (dryRun) {
     console.error(`[ompp] mode: ${mode.name}`);
     console.error(`[ompp] omp: ${plan.bin}${plan.shell ? " (shell)" : ""}`);
     console.error(`[ompp] argv: ${JSON.stringify(plan.argv)}`);
+
     return 0;
   }
+
   console.error(`[ompp] mode: ${mode.name}`);
   const { bin, shell, argv } = plan;
   const { LaunchPlan: LP } = require("./lib/launchPlan");
   // Reuse LaunchPlan quoting for the shell branch so wiring and module agree.
   const lp = new LP();
+
   const child = shell
     ? spawn(lp.displayCmd(bin, argv), { stdio: "inherit", shell: true })
     : spawn(bin, argv, { stdio: "inherit" });
+
   child.on("error", (err) => {
     console.error(`[ompp] failed to start omp: ${err.message}`);
     process.exitCode = 1;
@@ -84,6 +93,7 @@ function launchMode(mode, userArgs, dryRun) {
   child.on("exit", (code, signal) => {
     process.exitCode = code ?? (signal ? 1 : 0);
   });
+
   return 0;
 }
 
@@ -102,24 +112,33 @@ async function main() {
 
   if (argv[0] === "list") {
     const { modes, skipped } = registry.discoverModes();
+
     if (!modes.length) {
       console.error(`You have no modes yet. Create one with "ompp create <name>".`);
+
       for (const s of registry.sources) console.error(`[ompp] looked in: ${s}`);
+
       return 1;
     }
+
     for (const m of modes) console.log(m.name);
+
     if (skipped.length) {
       console.error(`[ompp] skipped folders without recognized files: ${skipped.join(", ")}`);
     }
+
     return 0;
   }
 
   if (["-h", "--help", "help"].includes(argv[0])) {
     usage();
+
     return 0;
   }
+
   if (["-v", "--version", "version"].includes(argv[0])) {
     console.log(require("./package.json").version);
+
     return 0;
   }
 
@@ -127,25 +146,34 @@ async function main() {
   const rest = argv.filter((a) => a !== "--dry-run");
 
   const { modes, skipped } = registry.discoverModes();
+
   if (skipped.length) {
     console.error(`[ompp] skipped folders without recognized files: ${skipped.join(", ")}`);
   }
+
   if (!modes.length && !process.stdin.isTTY) {
     console.error(`You have no modes yet. Create one with "ompp create <name>".`);
+
     for (const s of registry.sources) console.error(`[ompp] looked in: ${s}`);
+
     return 1;
   }
+
   if (!modes.length) {
     // TTY with zero modes: jump straight into picking — the picker offers
     // the "Create a new mode" row so an empty home is not a dead end.
     try {
       const picker = new Picker({ registry, store });
       const picked = await picker.pick([]);
+
       if (picked.kind === "create") return store.createCli(picked.name);
+
       if (picked.kind === "cancel") process.exit(130);
+
       return 1;
     } catch (err) {
       console.error(`[ompp] ${err.message}`);
+
       return 1;
     }
   }
@@ -153,15 +181,18 @@ async function main() {
   const modeNames = modes.map((m) => m.name);
   let mode = null;
   let userArgs = rest;
+
   if (rest.length && !rest[0].startsWith("-")) {
     const candidate = rest[0];
     const found = modes.find((m) => m.name === candidate);
+
     if (found) {
       mode = found;
       userArgs = rest.slice(1);
     } else {
       console.error(`[ompp] unknown mode "${candidate}"`);
       console.error(`[ompp] available: ${modeNames.join(", ")}`);
+
       return 1;
     }
   }
@@ -170,11 +201,14 @@ async function main() {
     try {
       const picker = new Picker({ registry, store });
       const picked = await picker.pick(modes);
+
       if (picked.kind === "create") return store.createCli(picked.name);
+
       if (picked.kind === "cancel") process.exit(130);
       mode = picked.mode;
     } catch (err) {
       console.error(`[ompp] ${err.message}`);
+
       return 1;
     }
   }
