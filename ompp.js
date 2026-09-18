@@ -277,15 +277,42 @@ function createMode(name) {
   return 0;
 }
 
+const CREATE_OPTION = "__create__";
+
+function isValidModeName(name) {
+  return /^[a-z0-9][a-z0-9-]*$/.test(name);
+}
+
 async function pickMode(modeNames) {
-  const { select, isCancel, cancel } = require("@clack/prompts");
+  const { select, text, isCancel, cancel } = require("@clack/prompts");
+  const options = [
+    ...modeNames.map((name) => ({ value: name, label: name })),
+    { value: CREATE_OPTION, label: "Create a new mode +" },
+  ];
   const chosen = await select({
     message: "Pick a mode",
-    options: modeNames.map((name) => ({ value: name, label: name })),
+    options,
   });
   if (isCancel(chosen)) {
     cancel("Cancelled");
     process.exit(130);
+  }
+  if (chosen === CREATE_OPTION) {
+    const name = await text({
+      message: "New mode name",
+      validate: (v) => {
+        if (!v || !isValidModeName(v)) {
+          return "Lowercase letters, digits, and dashes only";
+        }
+        if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
+        return undefined;
+      },
+    });
+    if (isCancel(name)) {
+      cancel("Cancelled");
+      process.exit(130);
+    }
+    return { create: name };
   }
   return chosen;
 }
@@ -313,6 +340,36 @@ function pickModePiped(modeNames) {
 }
 
 
+
+// Spawn omp in the given mode.
+function launchMode(mode, userArgs, dryRun) {
+  const modeDir = modeDirOf(mode.name, mode.source);
+  const args = buildArgv(modeDir, userArgs);
+  const { bin, shell } = resolveBin();
+
+  if (dryRun) {
+    console.error(`[ompp] mode: ${mode.name}`);
+    console.error(`[ompp] omp: ${bin}${shell ? " (shell)" : ""}`);
+    console.error(`[ompp] argv: ${JSON.stringify(args)}`);
+    return 0;
+  }
+
+  console.error(`[ompp] mode: ${mode.name}`);
+  const child = shell
+    ? spawn([winQuote(bin), ...args.map(winQuote)].join(" "), {
+        stdio: "inherit",
+        shell: true,
+      })
+    : spawn(bin, args, { stdio: "inherit" });
+  child.on("error", (err) => {
+    console.error(`[ompp] failed to start omp: ${err.message}`);
+    process.exitCode = 1;
+  });
+  child.on("exit", (code, signal) => {
+    process.exitCode = code ?? (signal ? 1 : 0);
+  });
+  return 0;
+}
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -357,12 +414,28 @@ async function main() {
       `[ompp] skipped folders without recognized files: ${skipped.join(", ")}`,
     );
   }
-  if (!modes.length) {
+  if (!modes.length && !process.stdin.isTTY) {
     console.error(
       `You have no modes yet. Create one with "ompp create <name>".`,
     );
     for (const s of SOURCES) console.error(`[ompp] looked in: ${s}`);
     return 1;
+  }
+  if (!modes.length) {
+    // TTY with zero modes: jump straight into creating the first one.
+    try {
+      const picked = await pickMode([]);
+      if (picked && typeof picked === "object" && picked.create) {
+        const created = createMode(picked.create);
+        if (created !== 0) return created;
+        const mode2 = { name: picked.create, source: DEFAULT_MODES_DIR };
+        return launchMode(mode2, userArgs, dryRun);
+      }
+      return 1;
+    } catch (err) {
+      console.error(`[ompp] ${err.message}`);
+      return 1;
+    }
   }
 
   const modeNames = modes.map((m) => m.name);
@@ -379,44 +452,28 @@ async function main() {
       console.error(`[ompp] available: ${modeNames.join(", ")}`);
       return 1;
     }
-  } else {
+  }
+
+  if (!mode) {
     try {
-      const name = process.stdin.isTTY
+      const picked = process.stdin.isTTY
         ? await pickMode(modeNames)
         : await pickModePiped(modeNames);
-      mode = modes.find((m) => m.name === name);
+      if (picked && typeof picked === "object" && picked.create) {
+        const created = createMode(picked.create);
+        if (created !== 0) return created;
+        // Launch the freshly created mode right away.
+        mode = { name: picked.create, source: DEFAULT_MODES_DIR };
+      } else {
+        mode = modes.find((m) => m.name === picked);
+      }
     } catch (err) {
       console.error(`[ompp] ${err.message}`);
       return 1;
     }
   }
 
-  const modeDir = modeDirOf(mode.name, mode.source);
-  const args = buildArgv(modeDir, userArgs);
-  const { bin, shell } = resolveBin();
-
-  if (dryRun) {
-    console.error(`[ompp] mode: ${mode.name}`);
-    console.error(`[ompp] omp: ${bin}${shell ? " (shell)" : ""}`);
-    console.error(`[ompp] argv: ${JSON.stringify(args)}`);
-    return 0;
-  }
-
-  console.error(`[ompp] mode: ${mode.name}`);
-  const child = shell
-    ? spawn([winQuote(bin), ...args.map(winQuote)].join(" "), {
-        stdio: "inherit",
-        shell: true,
-      })
-    : spawn(bin, args, { stdio: "inherit" });
-  child.on("error", (err) => {
-    console.error(`[ompp] failed to start omp: ${err.message}`);
-    process.exitCode = 1;
-  });
-  child.on("exit", (code, signal) => {
-    process.exitCode = code ?? (signal ? 1 : 0);
-  });
-  return 0;
+  return launchMode(mode, userArgs, dryRun);
 }
 
 main()
