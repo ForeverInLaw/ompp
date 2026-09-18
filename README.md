@@ -9,12 +9,18 @@ ompp gives each kind of work a name and a folder. Launch a session in a mode and
 ## Install
 
 ```sh
+npm install -g @nevermorelove/ompp
+```
+
+Node 18 or newer, that is the whole requirement. bun works too. The binary is
+named `ompp` even though the package is scoped. You can also install from
+source:
+
+```sh
 git clone git@github.com:ForeverInLaw/ompp.git
 cd ompp
 npm install -g .
 ```
-
-Node 18 or newer, that is the whole requirement. bun works too. After install, `ompp` is on your PATH. To update, `git pull` and install again.
 
 ## Usage
 

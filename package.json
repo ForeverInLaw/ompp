@@ -1,5 +1,5 @@
 {
-  "name": "ompp",
+  "name": "@nevermorelove/ompp",
   "version": "0.1.0",
   "description": "Mode presets for the omp coding agent: one folder per mode, zero config code.",
   "repository": {
