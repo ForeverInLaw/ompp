@@ -22,21 +22,8 @@ const { spawn } = require("child_process");
 const os = require("os");
 const https = require("https");
 // --- update check -----------------------------------------------------------
-// Best-practice pattern (update-notifier): a 24h cache file, a non-blocking
-// registry query that never delays startup, and a pnpm-style upgrade banner.
-const UPDATE_CACHE = path.join(os.homedir(), ".omp", "ompp", "update-check.json");
-const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-function readCachedLatest() {
-  try {
-    const data = JSON.parse(fs.readFileSync(UPDATE_CACHE, "utf8"));
-    if (typeof data.latest === "string") return data.latest;
-  } catch {
-    /* no cache yet or corrupt: fine */
-  }
-  return null;
-}
-
+// One registry request per run, bounded by a 5s timeout. If the registry
+// has a newer semver, print an upgrade banner.
 function fetchLatestVersion() {
   return new Promise((resolve) => {
     const req = https.get(
@@ -66,17 +53,6 @@ function fetchLatestVersion() {
   });
 }
 
-function writeUpdateCache(latest) {
-  try {
-    fs.mkdirSync(path.dirname(UPDATE_CACHE), { recursive: true });
-    fs.writeFileSync(
-      UPDATE_CACHE,
-      JSON.stringify({ latest, checkedAt: Date.now() }),
-    );
-  } catch {
-    /* cache write is best-effort */
-  }
-}
 function isNewerVersion(current, latest) {
   const parse = (v) =>
     v.split(/[.-]/).slice(0, 3).map((n) => parseInt(n, 10) || 0);
@@ -107,27 +83,9 @@ async function checkForUpdate() {
   if (fs.existsSync(path.join(__dirname, ".git"))) return;
 
   const current = require("./package.json").version;
-  let cached = null;
-  try {
-    cached = JSON.parse(fs.readFileSync(UPDATE_CACHE, "utf8"));
-  } catch {
-    /* no cache yet or corrupt: fine */
-  }
-  const fresh =
-    cached && Date.now() - (cached.checkedAt || 0) < UPDATE_INTERVAL_MS;
-
-  if (!fresh) {
-    // Refetch; the 5s timeout bounds the wait, and a failure keeps the
-    // process moving without a banner.
-    const latest = await fetchLatestVersion();
-    if (latest) {
-      writeUpdateCache(latest);
-      if (isNewerVersion(current, latest)) printUpdateBanner(current, latest);
-    }
-    return;
-  }
-  if (cached.latest && isNewerVersion(current, cached.latest)) {
-    printUpdateBanner(current, cached.latest);
+  const latest = await fetchLatestVersion();
+  if (latest && isNewerVersion(current, latest)) {
+    printUpdateBanner(current, latest);
   }
 }
 
