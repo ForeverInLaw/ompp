@@ -226,6 +226,7 @@ function usage() {
 
 Usage:
   ompp                    pick a mode interactively, then launch omp
+                          (r: rename, d: delete on the highlighted mode)
   ompp <mode> [args...]   launch omp in a mode; everything after <mode>
                           is passed to omp unchanged and wins over the mode
   ompp create <name>      create a new mode with placeholder files
@@ -343,44 +344,135 @@ function createMode(name) {
   return 0;
 }
 
+function renameMode(mode, newName) {
+  if (!newName || !isValidModeName(newName)) {
+    console.error(`[ompp] "${newName}" is not a valid mode name.`);
+    return false;
+  }
+  if (RESERVED_NAMES.includes(newName)) {
+    console.error(`[ompp] "${newName}" is reserved for ompp commands.`);
+    return false;
+  }
+  const from = modeDirOf(mode.name, mode.source);
+  const to = modeDirOf(newName, mode.source);
+  if (fs.existsSync(to)) {
+    console.error(`[ompp] mode "${newName}" already exists.`);
+    return false;
+  }
+  fs.renameSync(from, to);
+  console.error(`[ompp] renamed "${mode.name}" to "${newName}"`);
+  return true;
+}
+
+function deleteMode(mode) {
+  const dir = modeDirOf(mode.name, mode.source);
+  fs.rmSync(dir, { recursive: true, force: true });
+  console.error(`[ompp] deleted mode "${mode.name}"`);
+  return true;
+}
+
 const CREATE_OPTION = "__create__";
 
 function isValidModeName(name) {
   return /^[a-z0-9][a-z0-9-]*$/.test(name);
 }
 
-async function pickMode(modeNames) {
-  const { select, text, isCancel, cancel } = require("@clack/prompts");
-  const options = [
-    ...modeNames.map((name) => ({ value: name, label: name })),
-    { value: CREATE_OPTION, label: "Create a new mode +" },
-  ];
-  const chosen = await select({
-    message: "Pick a mode",
-    options,
-  });
-  if (isCancel(chosen)) {
-    cancel("Cancelled");
-    process.exit(130);
-  }
-  if (chosen === CREATE_OPTION) {
-    const name = await text({
-      message: "New mode name",
-      validate: (v) => {
-        if (!v || !isValidModeName(v)) {
-          return "Lowercase letters, digits, and dashes only";
-        }
-        if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
-        return undefined;
-      },
+// The interactive picker. Receives mode objects ({name, source}), returns
+// the picked mode object, or {create: <name>} for the create flow.
+// r renames and d deletes the highlighted mode; both re-render the picker.
+async function pickMode(modes) {
+  const { select, text, confirm, isCancel, cancel } = require("@clack/prompts");
+  for (;;) {
+    const options = [
+      ...modes.map((m) => ({
+        value: m,
+        label: m.name,
+        hint: "r: rename, d: delete",
+      })),
+      { value: CREATE_OPTION, label: "Create a new mode +" },
+    ];
+    let action = null; // "rename" | "delete" | null
+    // Registered before the prompt so it sees the keypress first and can
+    // rewrite r/d into "return" for the prompt's own keypress listener.
+    const onKeypress = (ch, key) => {
+      if (!key || !key.name) return;
+      if (key.name === "r" && !key.ctrl && !key.meta) {
+        action = "rename";
+        key.name = "return";
+      } else if (key.name === "d" && !key.ctrl && !key.meta) {
+        action = "delete";
+        key.name = "return";
+      }
+    };
+    process.stdin.on("keypress", onKeypress);
+    const chosen = await select({
+      message: "Pick a mode",
+      options,
     });
-    if (isCancel(name)) {
+    process.stdin.removeListener("keypress", onKeypress);
+
+    if (isCancel(chosen)) {
       cancel("Cancelled");
       process.exit(130);
     }
-    return { create: name };
+
+    // r/d on the highlighted row: run the action, then reopen the picker.
+    if (action && chosen !== CREATE_OPTION) {
+      if (action === "rename") {
+        const newName = await text({
+          message: `Rename "${chosen.name}" to`,
+          validate: (v) => {
+            if (!v || !isValidModeName(v)) {
+              return "Lowercase letters, digits, and dashes only";
+            }
+            if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
+            if (modes.some((m) => m.name === v)) return `"${v}" already exists`;
+            return undefined;
+          },
+        });
+        if (!isCancel(newName) && renameMode(chosen, newName)) {
+          chosen.name = newName;
+        } else {
+          cancel("Rename cancelled");
+        }
+      } else {
+        const sure = await confirm({
+          message: `Delete "${chosen.name}"? This removes its folder.`,
+          active: "Delete",
+          inactive: "Keep",
+        });
+        if (!isCancel(sure) && sure) {
+          deleteMode(chosen);
+          // Splice in place: main() keeps a reference to this array.
+          modes.splice(
+            modes.findIndex((m) => m.name === chosen.name),
+            1,
+          );
+        } else {
+          cancel("Delete cancelled");
+        }
+      }
+      continue; // reopen the picker with the updated list
+    }
+    if (chosen === CREATE_OPTION) {
+      const name = await text({
+        message: "New mode name",
+        validate: (v) => {
+          if (!v || !isValidModeName(v)) {
+            return "Lowercase letters, digits, and dashes only";
+          }
+          if (RESERVED_NAMES.includes(v)) return `"${v}" is reserved`;
+          return undefined;
+        },
+      });
+      if (isCancel(name)) {
+        cancel("Cancelled");
+        process.exit(130);
+      }
+      return { create: name };
+    }
+    return chosen;
   }
-  return chosen;
 }
 
 // Non-TTY stdin: clack needs an interactive terminal, so numbered input.
@@ -521,16 +613,20 @@ async function main() {
 
   if (!mode) {
     try {
-      const picked = process.stdin.isTTY
-        ? await pickMode(modeNames)
+      let picked = process.stdin.isTTY
+        ? await pickMode(modes)
         : await pickModePiped(modeNames);
+      if (typeof picked === "string") {
+        // The piped picker returns a name; normalize to the mode object.
+        picked = modes.find((m) => m.name === picked);
+      }
       if (picked && typeof picked === "object" && picked.create) {
         // Scaffold and stop: the mode is all placeholders, launching it
         // now would run an unconfigured mode. The user fills it in and
         // launches when ready.
         return createMode(picked.create);
       } else {
-        mode = modes.find((m) => m.name === picked);
+        mode = picked;
       }
     } catch (err) {
       console.error(`[ompp] ${err.message}`);

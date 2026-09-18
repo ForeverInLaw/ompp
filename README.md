@@ -32,6 +32,10 @@ ompp list               print mode names
 ompp pentest --dry-run  show the omp command line instead of running it
 ```
 
+In the picker, `r` renames the highlighted mode and `d` deletes it (after a
+confirmation). The picker reopens after either, so a mispress costs nothing:
+cancel the rename or keep the mode, and you are back in the list.
+
 Before launch it prints one line to stderr, `[ompp] mode: pentest`, so you always know where you are.
 
 Modes are read from two places, and same-named modes from the first win:
